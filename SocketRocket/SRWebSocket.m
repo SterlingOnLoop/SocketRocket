@@ -359,8 +359,10 @@ static __strong NSData *CRLFCRLF;
     [_inputStream close];
     [_outputStream close];
     
-    sr_dispatch_release(_workQueue);
-    _workQueue = NULL;
+    if (_workQueue) {
+        sr_dispatch_release(_workQueue);
+        _workQueue = NULL;
+    }
     
     if (_receivedHTTPHeaders) {
         CFRelease(_receivedHTTPHeaders);
@@ -1372,6 +1374,8 @@ static const size_t SRFrameHeaderOverhead = 32;
 
 - (void)stream:(NSStream *)aStream handleEvent:(NSStreamEvent)eventCode
 {
+    __weak typeof(self) weakSelf = self;
+    
     if (_secure && !_pinnedCertFound && (eventCode == NSStreamEventHasBytesAvailable || eventCode == NSStreamEventHasSpaceAvailable)) {
         
         NSArray *sslCerts = [_urlRequest SR_SSLPinnedCertificates];
@@ -1397,7 +1401,8 @@ static const size_t SRFrameHeaderOverhead = 32;
             
             if (!_pinnedCertFound) {
                 dispatch_async(_workQueue, ^{
-                    [self _failWithError:[NSError errorWithDomain:SRWebSocketErrorDomain code:23556 userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"Invalid server cert"] forKey:NSLocalizedDescriptionKey]]];
+                    NSDictionary *userInfo = @{NSLocalizedDescriptionKey: @"Invalid server cert"};
+                    [weakSelf _failWithError:[NSError errorWithDomain:SRWebSocketErrorDomain code:23556 userInfo:userInfo]];
                 });
                 return;
             }
@@ -1405,49 +1410,54 @@ static const size_t SRFrameHeaderOverhead = 32;
     }
 
     dispatch_async(_workQueue, ^{
+        if (! weakSelf)
+            return;
+        
+        __strong __typeof(weakSelf) strongSelf = weakSelf;
+        
         switch (eventCode) {
             case NSStreamEventOpenCompleted: {
                 SRFastLog(@"NSStreamEventOpenCompleted %@", aStream);
-                if (self.readyState >= SR_CLOSING) {
+                if (strongSelf.readyState >= SR_CLOSING) {
                     return;
                 }
-                assert(_readBuffer);
+                assert(strongSelf->_readBuffer);
                 
-                if (self.readyState == SR_CONNECTING && aStream == _inputStream) {
-                    [self didConnect];
+                if (strongSelf.readyState == SR_CONNECTING && aStream == strongSelf->_inputStream) {
+                    [strongSelf didConnect];
                 }
-                [self _pumpWriting];
-                [self _pumpScanner];
+                [strongSelf _pumpWriting];
+                [strongSelf _pumpScanner];
                 break;
             }
                 
             case NSStreamEventErrorOccurred: {
                 SRFastLog(@"NSStreamEventErrorOccurred %@ %@", aStream, [[aStream streamError] copy]);
                 /// TODO specify error better!
-                [self _failWithError:aStream.streamError];
-                _readBufferOffset = 0;
-                [_readBuffer setLength:0];
+                [strongSelf _failWithError:aStream.streamError];
+                strongSelf->_readBufferOffset = 0;
+                [strongSelf->_readBuffer setLength:0];
                 break;
                 
             }
                 
             case NSStreamEventEndEncountered: {
-                [self _pumpScanner];
+                [strongSelf _pumpScanner];
                 SRFastLog(@"NSStreamEventEndEncountered %@", aStream);
                 if (aStream.streamError) {
-                    [self _failWithError:aStream.streamError];
+                    [strongSelf _failWithError:aStream.streamError];
                 } else {
-                    if (self.readyState != SR_CLOSED) {
-                        self.readyState = SR_CLOSED;
-                        _selfRetain = nil;
+                    if (strongSelf.readyState != SR_CLOSED) {
+                        strongSelf.readyState = SR_CLOSED;
+                        strongSelf->_selfRetain = nil;
                     }
 
-                    if (!_sentClose && !_failed) {
-                        _sentClose = YES;
+                    if (!strongSelf->_sentClose && !strongSelf->_failed) {
+                        strongSelf->_sentClose = YES;
                         // If we get closed in this state it's probably not clean because we should be sending this when we send messages
-                        [self _performDelegateBlock:^{
-                            if ([self.delegate respondsToSelector:@selector(webSocket:didCloseWithCode:reason:wasClean:)]) {
-                                [self.delegate webSocket:self didCloseWithCode:SRStatusCodeGoingAway reason:@"Stream end encountered" wasClean:NO];
+                        [strongSelf _performDelegateBlock:^{
+                            if ([strongSelf.delegate respondsToSelector:@selector(webSocket:didCloseWithCode:reason:wasClean:)]) {
+                                [strongSelf.delegate webSocket:strongSelf didCloseWithCode:SRStatusCodeGoingAway reason:@"Stream end encountered" wasClean:NO];
                             }
                         }];
                     }
@@ -1461,26 +1471,26 @@ static const size_t SRFrameHeaderOverhead = 32;
                 const int bufferSize = 2048;
                 uint8_t buffer[bufferSize];
                 
-                while (_inputStream.hasBytesAvailable) {
-                    NSInteger bytes_read = [_inputStream read:buffer maxLength:bufferSize];
+                while (strongSelf->_inputStream.hasBytesAvailable) {
+                    NSInteger bytes_read = [strongSelf->_inputStream read:buffer maxLength:bufferSize];
                     
                     if (bytes_read > 0) {
-                        [_readBuffer appendBytes:buffer length:bytes_read];
+                        [strongSelf->_readBuffer appendBytes:buffer length:bytes_read];
                     } else if (bytes_read < 0) {
-                        [self _failWithError:_inputStream.streamError];
+                        [strongSelf _failWithError:strongSelf->_inputStream.streamError];
                     }
                     
                     if (bytes_read != bufferSize) {
                         break;
                     }
                 };
-                [self _pumpScanner];
+                [strongSelf _pumpScanner];
                 break;
             }
                 
             case NSStreamEventHasSpaceAvailable: {
                 SRFastLog(@"NSStreamEventHasSpaceAvailable %@", aStream);
-                [self _pumpWriting];
+                [strongSelf _pumpWriting];
                 break;
             }
                 
