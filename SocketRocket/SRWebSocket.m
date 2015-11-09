@@ -254,7 +254,7 @@ static __strong NSData *CRLFCRLF;
     CRLFCRLF = [[NSData alloc] initWithBytes:"\r\n\r\n" length:4];
 }
 
-- (id)initWithURLRequest:(NSURLRequest *)request protocols:(NSArray *)protocols allowsUntrustedSSLCertificates:(BOOL)allowsUntrustedSSLCertificates;
+- (instancetype)initWithURLRequest:(NSURLRequest *)request protocols:(NSArray *)protocols allowsUntrustedSSLCertificates:(BOOL)allowsUntrustedSSLCertificates;
 {
     self = [super init];
     if (self) {
@@ -271,12 +271,12 @@ static __strong NSData *CRLFCRLF;
     return self;
 }
 
-- (id)initWithURLRequest:(NSURLRequest *)request protocols:(NSArray *)protocols;
+- (instancetype)initWithURLRequest:(NSURLRequest *)request protocols:(NSArray *)protocols;
 {
     return [self initWithURLRequest:request protocols:protocols allowsUntrustedSSLCertificates:NO];
 }
 
-- (id)initWithURLRequest:(NSURLRequest *)request;
+- (instancetype)initWithURLRequest:(NSURLRequest *)request;
 {
     return [self initWithURLRequest:request protocols:nil];
 }
@@ -292,7 +292,7 @@ static __strong NSData *CRLFCRLF;
     return [self initWithURLRequest:request protocols:protocols];
 }
 
-- (id)initWithURL:(NSURL *)url protocols:(NSArray *)protocols allowsUntrustedSSLCertificates:(BOOL)allowsUntrustedSSLCertificates;
+- (instancetype)initWithURL:(NSURL *)url protocols:(NSArray *)protocols allowsUntrustedSSLCertificates:(BOOL)allowsUntrustedSSLCertificates;
 {
     NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:url];
     return [self initWithURLRequest:request protocols:protocols allowsUntrustedSSLCertificates:allowsUntrustedSSLCertificates];
@@ -500,8 +500,8 @@ static __strong NSData *CRLFCRLF;
     // Apply cookies if any have been provided
     NSDictionary * cookies = [NSHTTPCookie requestHeaderFieldsWithCookies:[self requestCookies]];
     for (NSString * cookieKey in cookies) {
-        NSString * cookieValue = [cookies objectForKey:cookieKey];
-        if ([cookieKey length] && [cookieValue length]) {
+        NSString * cookieValue = cookies[cookieKey];
+        if (cookieKey.length && cookieValue.length) {
             CFHTTPMessageSetHeaderFieldValue(request, (__bridge CFStringRef)cookieKey, (__bridge CFStringRef)cookieValue);
         }
     }
@@ -578,7 +578,7 @@ static __strong NSData *CRLFCRLF;
         [_outputStream setProperty:(__bridge id)kCFStreamSocketSecurityLevelNegotiatedSSL forKey:(__bridge id)kCFStreamPropertySocketSecurityLevel];
         
         // If we're using pinned certs, don't validate the certificate chain
-        if ([_urlRequest SR_SSLPinnedCertificates].count) {
+        if (_urlRequest.SR_SSLPinnedCertificates.count) {
             [SSLOptions setValue:@NO forKey:(__bridge id)kCFStreamSSLValidatesCertificateChain];
         }
         
@@ -1074,7 +1074,7 @@ static const uint8_t SRPayloadLenMask   = 0x7F;
 - (void)_readFrameNew
 {
     dispatch_async(_workQueue, ^{
-        [_currentFrameData setLength:0];
+        _currentFrameData.length = 0;
         
         _currentFrameOpcode = 0;
         _currentFrameCount = 0;
@@ -1333,7 +1333,7 @@ static const size_t SRFrameHeaderOverhead = 32;
         [self closeWithCode:SRStatusCodeMessageTooBig reason:@"Message too big"];
         return;
     }
-    uint8_t *frame_buffer = (uint8_t *)[frame mutableBytes];
+    uint8_t *frame_buffer = (uint8_t *)frame.mutableBytes;
     
     // set fin
     frame_buffer[0] = SRFinMask | opcode;
@@ -1400,7 +1400,7 @@ static const size_t SRFrameHeaderOverhead = 32;
     
     if (_secure && !_pinnedCertFound && (eventCode == NSStreamEventHasBytesAvailable || eventCode == NSStreamEventHasSpaceAvailable)) {
         
-        NSArray *sslCerts = [_urlRequest SR_SSLPinnedCertificates];
+        NSArray *sslCerts = _urlRequest.SR_SSLPinnedCertificates;
         if (sslCerts) {
             SecTrustRef secTrust = (__bridge SecTrustRef)[aStream propertyForKey:(__bridge id)kCFStreamPropertySSLPeerTrust];
             if (secTrust) {
@@ -1460,11 +1460,11 @@ static const size_t SRFrameHeaderOverhead = 32;
             }
                 
             case NSStreamEventErrorOccurred: {
-                SRFastLog(@"NSStreamEventErrorOccurred %@ %@", aStream, [[aStream streamError] copy]);
+                SRFastLog(@"NSStreamEventErrorOccurred %@ %@", aStream, [aStream.streamError copy]);
                 /// TODO specify error better!
                 [strongSelf _failWithError:aStream.streamError];
                 strongSelf->_readBufferOffset = 0;
-                [strongSelf->_readBuffer setLength:0];
+                strongSelf->_readBuffer.length = 0;
                 break;
                 
             }
@@ -1580,7 +1580,7 @@ static const size_t SRFrameHeaderOverhead = 32;
 {
     SRIOConsumer *consumer = nil;
     if (_bufferedConsumers.count) {
-        consumer = [_bufferedConsumers lastObject];
+        consumer = _bufferedConsumers.lastObject;
         [_bufferedConsumers removeLastObject];
     } else {
         consumer = [[SRIOConsumer alloc] init];
@@ -1628,8 +1628,8 @@ static const size_t SRFrameHeaderOverhead = 32;
 
 - (NSString *)SR_origin
 {
-    NSString *scheme = [self.scheme lowercaseString];
-        
+    NSString *scheme = self.scheme.lowercaseString;
+    
     if ([scheme isEqualToString:@"wss"]) {
         scheme = @"https";
     } else if ([scheme isEqualToString:@"ws"]) {
@@ -1668,14 +1668,14 @@ static inline void SRFastLog(NSString *format, ...)  {
 #ifdef HAS_ICU
 
 static inline int32_t validate_dispatch_data_partial_string(NSData *data) {
-    if ([data length] > INT32_MAX) {
+    if (data.length > INT32_MAX) {
         // INT32_MAX is the limit so long as this Framework is using 32 bit ints everywhere.
         return -1;
     }
 
-    int32_t size = (int32_t)[data length];
+    int32_t size = (int32_t)data.length;
 
-    const void * contents = [data bytes];
+    const void * contents = data.bytes;
     const uint8_t *str = (const uint8_t *)contents;
     
     UChar32 codepoint = 1;
@@ -1707,7 +1707,7 @@ static inline int32_t validate_dispatch_data_partial_string(NSData *data) {
         }
     }
     
-    if (size != -1 && ![[NSString alloc] initWithBytesNoCopy:(char *)[data bytes] length:size encoding:NSUTF8StringEncoding freeWhenDone:NO]) {
+    if (size != -1 && ![[NSString alloc] initWithBytesNoCopy:(char *)data.bytes length:size encoding:NSUTF8StringEncoding freeWhenDone:NO]) {
         size = -1;
     }
     
