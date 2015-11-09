@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.source_files       = 'SocketRocket/*.{h,m,c}'
   s.requires_arc       = true
 
-  s.ios.deployment_target = '6.0'
+  s.ios.deployment_target = '7.0'
   s.osx.deployment_target = '10.8'
 
   s.ios.frameworks     = 'CFNetwork', 'Security'
