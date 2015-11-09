@@ -254,7 +254,7 @@ static __strong NSData *CRLFCRLF;
     CRLFCRLF = [[NSData alloc] initWithBytes:"\r\n\r\n" length:4];
 }
 
-- (instancetype)initWithURLRequest:(NSURLRequest *)request protocols:(NSArray *)protocols
+- (id)initWithURLRequest:(NSURLRequest *)request protocols:(NSArray *)protocols allowsUntrustedSSLCertificates:(BOOL)allowsUntrustedSSLCertificates;
 {
     self = [super init];
     if (self) {
@@ -271,7 +271,12 @@ static __strong NSData *CRLFCRLF;
     return self;
 }
 
-- (instancetype)initWithURLRequest:(NSURLRequest *)request
+- (id)initWithURLRequest:(NSURLRequest *)request protocols:(NSArray *)protocols;
+{
+    return [self initWithURLRequest:request protocols:protocols allowsUntrustedSSLCertificates:NO];
+}
+
+- (id)initWithURLRequest:(NSURLRequest *)request;
 {
     return [self initWithURLRequest:request protocols:nil];
 }
@@ -287,7 +292,13 @@ static __strong NSData *CRLFCRLF;
     return [self initWithURLRequest:request protocols:protocols];
 }
 
-- (void)_SR_commonInit
+- (id)initWithURL:(NSURL *)url protocols:(NSArray *)protocols allowsUntrustedSSLCertificates:(BOOL)allowsUntrustedSSLCertificates;
+{
+    NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:url];
+    return [self initWithURLRequest:request protocols:protocols allowsUntrustedSSLCertificates:allowsUntrustedSSLCertificates];
+}
+
+- (void)_SR_commonInit;
 {
     NSString *scheme = _url.scheme.lowercaseString;
     assert([scheme isEqualToString:@"ws"] || [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"wss"] || [scheme isEqualToString:@"https"]);
@@ -572,8 +583,7 @@ static __strong NSData *CRLFCRLF;
         }
         
 #if DEBUG
-        [SSLOptions setValue:@NO forKey:(__bridge id)kCFStreamSSLValidatesCertificateChain];
-        NSLog(@"SocketRocket: In debug mode.  Allowing connection to any root cert");
+        self.allowsUntrustedSSLCertificates = YES;
 #endif
 
         if (self.allowsUntrustedSSLCertificates) {
@@ -1441,8 +1451,8 @@ static const size_t SRFrameHeaderOverhead = 32;
                 }
                 assert(strongSelf->_readBuffer);
                 
-                if (strongSelf.readyState == SR_CONNECTING && aStream == strongSelf->_inputStream) {
-                    [strongSelf didConnect];
+                if (!_secure && strongSelf.readyState == SR_CONNECTING && aStream == strongSelf->_inputStream) {
+                    [self didConnect];
                 }
                 [strongSelf _pumpWriting];
                 [strongSelf _pumpScanner];
@@ -1465,20 +1475,22 @@ static const size_t SRFrameHeaderOverhead = 32;
                 if (aStream.streamError) {
                     [strongSelf _failWithError:aStream.streamError];
                 } else {
-                    if (strongSelf.readyState != SR_CLOSED) {
-                        strongSelf.readyState = SR_CLOSED;
-                        strongSelf->_selfRetain = nil;
-                    }
+                    dispatch_async(_workQueue, ^{
+                        if (strongSelf.readyState != SR_CLOSED) {
+                            strongSelf.readyState = SR_CLOSED;
+                            strongSelf->_selfRetain = nil;
+                        }
 
-                    if (!strongSelf->_sentClose && !strongSelf->_failed) {
-                        strongSelf->_sentClose = YES;
-                        // If we get closed in this state it's probably not clean because we should be sending this when we send messages
-                        [strongSelf _performDelegateBlock:^{
-                            if ([strongSelf.delegate respondsToSelector:@selector(webSocket:didCloseWithCode:reason:wasClean:)]) {
-                                [strongSelf.delegate webSocket:strongSelf didCloseWithCode:SRStatusCodeGoingAway reason:@"Stream end encountered" wasClean:NO];
-                            }
-                        }];
-                    }
+                        if (!strongSelf->_sentClose && !strongSelf->_failed) {
+                            strongSelf->_sentClose = YES;
+                            // If we get closed in this state it's probably not clean because we should be sending this when we send messages
+                            [strongSelf _performDelegateBlock:^{
+                                if ([strongSelf.delegate respondsToSelector:@selector(webSocket:didCloseWithCode:reason:wasClean:)]) {
+                                    [strongSelf.delegate webSocket:self didCloseWithCode:SRStatusCodeGoingAway reason:@"Stream end encountered" wasClean:NO];
+                                }
+                            }];
+                        }
+                    });
                 }
                 
                 break;
