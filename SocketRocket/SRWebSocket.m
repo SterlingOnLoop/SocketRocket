@@ -1649,7 +1649,9 @@ static const size_t SRFrameHeaderOverhead = 32;
 
 @end
 
-//#define SR_ENABLE_LOG
+#ifdef DEBUG
+#define SR_ENABLE_LOG
+#endif
 
 static inline void SRFastLog(NSString *format, ...)  {
 #ifdef SR_ENABLE_LOG
